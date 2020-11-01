@@ -1,0 +1,411 @@
+---
+title: 'Time Series Exam: Electricity_Consumption'
+author: "Cristina Teleuca"
+output: html_document
+---
+
+
+```{r global-options, include=FALSE}
+knitr::opts_chunk$set(fig.width=9, fig.height=3, warning=FALSE, message=FALSE, 
+                      out.width = '50%', out.height='50%')
+
+```
+Libraries
+```{r Libraries, include=FALSE}
+library(readxl)
+library(openxlsx)
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tidyverse)
+library(fpp2)
+library(xts)
+library(chron)
+```
+# Data Preparation
+```{r}
+# load dataset
+elect <- read_excel("C:\\Users\\Cristina\\OneDrive\\Documents\\DSTI\\Time Series\\Exam\\Elec-train.xlsx")
+elect <- data.frame(elect)
+summary(elect)
+```
+```{r}
+# remove missing values
+elect <- na.omit(elect)
+summary(elect)
+```
+```{r}
+# check data
+head(elect)
+str(elect)
+```
+
+```{r}
+# Convert Timestamp column into time series from 1/1/2010 1:15 to 2/16/2010 23:45
+elect$Timestamp <- seq(as.POSIXct("2010-01-01 01:15:00", tz="GMT"), 
+                       as.POSIXct("2010-02-16 23:45:00", tz="GMT"),
+                       by='15 min')
+summary(elect)
+nrow(elect)
+```
+
+Add a Workday column: O for Weekday, 1 for Weekend
+```{r}
+library(chron)
+elect$Workday <- ifelse(is.weekend(elect$Timestamp) == FALSE , "0", "1")
+head(elect)
+```
+
+```{r}
+#Check nb of weekdays and weekends
+table(elect$Workday)
+```
+
+Create Time Series Object
+```{r}
+
+elect_ts <- ts(elect[,2:4], frequency = 96, start = c(1,1))
+head(elect_ts, n=3)
+summary(elect_ts)
+```
+
+# Explore and Visualize TS
+
+Visualize ts
+```{r}
+autoplot(elect_ts, facets=TRUE, 
+         main="Electricity Power and Temperatures")
+```
+
+
+Check trend cycle
+```{r}
+autoplot(elect_ts[,1], series="Power") +
+  autolayer(ma(elect_ts[,1], 96), series="daily-MA") + # moving average per day
+  xlab("Time") + ylab("Power") +
+  ggtitle("Power + Trend-Cycle") +
+  scale_colour_manual(values=c("Power"="grey50","daily-MA"="red"),
+                      breaks=c("Power","daily-MA"))
+```
+
+Smoothing line
+```{r}
+autoplot(elect_ts[,1], col=3)+
+  ggtitle("Power Time Series")+
+  xlab("Time") + 
+  ylab("Power")+
+  geom_smooth(col="red") + # add a smoothing line
+  theme(legend.position='none') + 
+  theme( axis.text.x = element_text(angle = 90, hjust = 1, size =5))
+```
+
+Decompose Time Series
+```{r}
+# decompose
+elect_ts[,1] %>% decompose(type = "multiplicative") %>%
+  autoplot() + xlab("Time") +
+  ggtitle("Classical multiplicative decomposition Power")
+```
+
+As we suspected the TS has a daily seasonality, and a slightly decreasing trend. The remainers captures the significant drops in electricity consumption.
+
+## Seasonal Plots
+```{r}
+# seasonal plots and seasonal sub-series plots can help to visualise the variation in the seasonal component over time , but also compare seasons between them
+
+ggseasonplot(elect_ts[,1]) + ggtitle("seasonplot") + ylab("Power") + xlab("Time")
+ggseasonplot(elect_ts[,1], polar=TRUE) + ggtitle("polar") + ylab("Power") + xlab("Time")
+```
+Seasonal plot identifying seasons in which some patterns change. But here no signficant changes, which was expected as the trend is not very trendy.
+
+```{r}
+ggsubseriesplot(elect_ts[,1]) +
+  theme(plot.title = element_text(hjust = 0.5)) +  # to center the plot title+
+  theme( axis.text.x = element_text(size =6)) +
+  scale_x_continuous(breaks=seq(0,96,4)) +
+  ylab("Power") +
+  ggtitle("Seasonal subseries:Electricity Consumsion every 15 minutes")
+```
+Hourly consumption have a non stationary trend. To generelize, we notice some subseasonalities: 
+<ul>
+<li> during the night till about 7 o'clock </li>
+<li> from 7 to 11 o'clock
+<li> from 11 to 21h..ish
+<li> and from 21 it start to decrease again
+</ul>
+
+```{r}
+require(gridExtra)  
+par(mfrow = c(3, 1)) 
+plot1 <- ggAcf(elect_ts[,1], main = "ACF daily" )  
+plot2 <- ggAcf(elect_ts[,1], lag=96*7, main = "ACF weekly") 
+plot3 <- ggAcf(elect_ts[,1], lag=96*30, main = "ACF monthly") 
+grid.arrange(plot1, plot2, plot3, ncol=1) # to arrange plots
+```
+
+All the spikes above the dash line indicate a significant correlation. Still, we notice that this correlation decrease along the time (monthly ACF)
+
+Differenciation
+```{r}
+elect_diff <- diff(elect_ts[,1], lag=96, differences =1)
+plot(elect_diff, main="Differenciated", ylab="Differences")
+```
+Once again, we notice a change around weekends (Workdays), so this value should be taken into account when forecasting.
+
+
+Ljung-Box test of the differenced series: a p-value greater than 0.05 suggests that the data a
+re not significantly different from white noise
+```{r}
+Box.test(elect_ts[,1], lag = 96, type = "Ljung") # so it doesn't look like white noise
+```
+
+
+# Split Train Test datasets
+
+```{r}
+# we have 4507 observations
+
+train <- subset(elect_ts[,1], end = 4507-96) # starting from februrary
+test <- subset(elect_ts, start = 4220) # will have 3 days of data: 288 obs.
+```
+
+# FORECASTS : finding best models
+
+Automatic ARIMA models for seasonal time series
+```{r}
+# Check that the logged data have stable variance
+elect_ts[,1] %>% log() %>% autoplot()
+
+# Fit a seasonal ARIMA model to with lambda = 0
+fit <- auto.arima(train, lambda = 0)
+
+# Summarize the fitted model
+summary(fit)
+
+arima <- fit %>% forecast(h = 288)
+
+```
+```{r}
+# Find better forecasts with accuracy()
+forecast::accuracy(arima, elect_ts[,1]) # RMSE=19.78
+
+# Plot  forecasts
+fit %>% forecast(h = 288) %>% autoplot()
+```
+
+The auto.arima() function needs to estimate a lot of different models, and various short-cuts are used to try to make the function as fast as possible. This can cause a model to be returned which does not actually have the smallest AICc value. To make auto.arima() work harder to find a good model, add the optional argument stepwise = FALSE to look at a much larger collection of models.
+
+```{r}
+# Don't use a stepwise search
+fit2 <- auto.arima(train, stepwise = FALSE) # but it takes a lot of time
+
+# Summarize the fitted model
+summary(fit2)
+
+arima2 <- fit %>% forecast(h = 288)
+```
+
+```{r}
+# Find better forecasts with accuracy()
+forecast::accuracy(arima2, elect_ts[,1]) # 19.78
+
+# Plot  forecasts
+fit2 %>% forecast(h = 288) %>% autoplot()
+```
+
+# Dynamic Regression
+
+Forecasting Consumption including Temp and Workday
+```{r}
+# Regression model allows to include other information
+
+train <- subset(elect_ts, end = 4507-96) # include temp and workday
+test <- subset(elect_ts, start = 4412)
+
+# Fit ARIMA model
+fit3 <- auto.arima(train[,1], xreg = train[,2:3], stationary = TRUE)
+```
+
+
+```{r}
+# check residuals
+checkresiduals(fit3)
+```
+Residuals seem to be normally distributed, but the model has some significant autocorrelation in the residuals, which means the prediction intervals may not provide accurate coverage.
+
+```{r}
+# Check fitted model is a regression with AR errors. Increase in Temp or change Workday for each unit increase in consumption
+ coefficients(fit3)
+```
+
+
+```{r}
+xreg <- test[,2:3]
+fcast <- forecast(fit3, xreg = xreg)
+# Find better forecasts with accuracy()
+forecast::accuracy(fcast, elect_ts[,1]) # 37.91
+
+autoplot(fcast) + ylab("Electricity Consumption")
+```
+
+ONly with temperature
+```{r}
+# Fit ARIMA model without including workday
+fit4 <- auto.arima(train[,1], xreg = train[,2], stationary = TRUE)
+# check residuals
+checkresiduals(fit4)
+# Check fitted model is a regression with AR errors
+coefficients(fit4)
+ 
+fcast1 <- forecast(fit4, xreg = test[,3])
+# Find better forecasts with accuracy()
+forecast::accuracy(fcast1, elect_ts[,1]) # 41.82
+
+autoplot(fcast) + ylab("Electricity Consumption")
+```
+
+
+# Dynamic harmonic regression
+
+When there are long seasonal periods, a dynamic regression with Fourier terms is often better
+The fourier() function makes it easy to generate the required harmonics. The higher the order (K), the more "wiggly" the seasonal pattern is allowed to be. With K=1, it is a simple sine curve. You can select the value of K by minimizing the AICc value. Function fourier(x, K, h = NULL) takes in a required time series, required number of Fourier terms to generate, and optional number of rows it needs to forecast:
+```{r}
+# Set up harmonic regressors of order 16
+harmonics <- fourier(train[,1], K = 16)
+
+# Fit regression model with ARIMA errors
+fit5 <- auto.arima(train[,1], xreg = harmonics, seasonal = FALSE)
+
+# Forecasts 
+newharmonics <- fourier(train, K = 16, h = 96) 
+fc <- forecast(fit5, xreg = newharmonics)
+
+# Plot forecasts fc
+autoplot(fc)
+```
+
+
+```{r}
+forecast::accuracy(fc, elect_ts[,1]) # 16.22
+```
+
+# Harmonic regression with tslm()
+```{r}
+# Fit a harmonic regression using order 10 for each type of seasonality
+fit6 <- tslm(train[,1] ~ fourier(train[,1], K = c(16)))
+
+# Forecast 96
+fc <- forecast(fit6, newdata = data.frame(fourier(train[,1], K = c(16), h = 96)))
+
+# Plot the forecasts
+autoplot(fc)
+
+```
+```{r}
+forecast::accuracy(fc, elect_ts[,1]) # 16.18
+```
+
+```{r}
+# Fit a harmonic regression using order 10 for each type of seasonality
+fit7 <- tslm(train[,1] ~ fourier(train[,1], K = c(24)))
+
+# Forecast 96
+fc <- forecast(fit7, newdata = data.frame(fourier(train[,1], K = c(24), h = 96)))
+
+forecast::accuracy(fc, elect_ts[,1]) # 15.49
+
+# Plot the forecasts
+autoplot(fc)
+```
+```{r}
+fit8 <- tslm(Power ~ Temp, data = train)
+summary(fit8)
+
+# Forecast 96
+fc <- forecast(fit8, newdata = data.frame(Temp = test[,2]))
+
+forecast::accuracy(fc, elect_ts[,1]) # 53
+
+# Plot the forecasts
+autoplot(fc)
+```
+
+
+So far, the best model including predictors Temperature and Workday was fit3 with RMSE=37.91, but with stationary = TRUE.
+
+With stationary= FALSE
+```{r}
+fit3_nonstationay <- auto.arima(train[,1], xreg = train[,2:3], stationary = FALSE)
+# check residuals
+checkresiduals(fit3)
+# Check fitted model is a regression with AR errors
+coefficients(fit3)
+xreg <- test[,2:3]
+fcast <- forecast(fit3_nonstationay, xreg = xreg)
+# Find better forecasts with accuracy()
+forecast::accuracy(fcast, elect_ts[,1]) # 20.08 BETTER !!
+
+autoplot(fcast) + ylab("Electricity Consumption")
+```
+
+#  forecast electricity consumption (kW) for February 17th
+
+Let's apply on the whole dataset to forecast for the next 96 horizons
+```{r}
+fit3_nonstationay <- auto.arima(elect_ts[,1], xreg = elect_ts[,2:3], stationary = FALSE)
+```
+
+
+```{r}
+# get the future temperatures whith NA values for Consumption
+elect <- read_excel("C:\\Users\\Cristina\\OneDrive\\Documents\\DSTI\\Time Series\\Exam\\Elec-train.xlsx")
+elect <- data.frame(elect)
+tail(elect)
+str(elect)
+```
+```{r}
+# Convert Timestamp column into time series from 1/1/2010 1:15 to 2/16/2010 23:45
+elect$Timestamp <- seq(as.POSIXct("2010-01-01 01:15:00", tz="GMT"), 
+                       as.POSIXct("2010-02-17 23:45:00", tz="GMT"),
+                       by='15 min')
+```
+
+```{r}
+library(chron)
+elect$Workday <- ifelse(is.weekend(elect$Timestamp) == FALSE , "0", "1")
+tail(elect)
+```
+```{r}
+# last 96
+rowsfcast <- tail(elect,96)
+# convert into ts object
+fcast <- ts(rowsfcast[,2:4], frequency = 96, start = c(1,1))
+head(fcast, n=3)
+summary(fcast)
+```
+
+```{r}
+xreg <- fcast[,2:3]
+fcast <- forecast(fit3_nonstationay, xreg = xreg)
+autoplot(fcast) + ylab("Electricity Consumption")
+```
+```{r}
+df <- data.frame(fcast)
+head(df)
+write.csv(df,"C:\\Users\\Cristina\\OneDrive\\Documents\\DSTI\\Time Series\\With_Predictors.csv", row.names = TRUE)
+```
+
+Forecast without predictors. Best model was when using harmonic regression with RMSE = 15.18
+```{r}
+hr <- tslm(elect_ts[,1] ~ fourier(elect_ts[,1], K = c(24)))
+
+# Forecast 96
+fc <- forecast(hr, newdata = data.frame(fourier(train[,1], K = c(24), h = 96)))
+autoplot(fc) + ylab("Electricity Consumption")
+```
+```{r}
+df <- data.frame(fc)
+head(df)
+write.csv(df,"C:\\Users\\Cristina\\OneDrive\\Documents\\DSTI\\Time Series\\Without_Predictors.csv", row.names = TRUE)
+```
+
