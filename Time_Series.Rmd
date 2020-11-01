@@ -1,0 +1,562 @@
+---
+title: "Time_Series_DataCamp"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Chapter 1: Exploratory Time Series
+
+
+```{r}
+library(datasets)
+Nile <- as.vector(Nile)
+```
+
+```{r}
+# Print the Nile dataset
+print(Nile)
+
+# List the number of observations in the Nile dataset
+length(Nile)
+
+# Display the first 10 elements of the Nile dataset
+head(Nile, n=5)
+
+# Display the last 12 elements of the Nile dataset
+tail(Nile, n=5)
+```
+
+Basic time series plots
+```{r}
+# Plot the Nile data with xlab, ylab, main, and type arguments
+plot(Nile, xlab = "Year", ylab = "River Volume (m^3)",
+           main="Annual River Nile Volume at Aswan, 1871-1970", 
+           type="b") # for points
+
+```
+
+Identifying the sampling frequency
+
+```{r}
+# Plot AirPassengers
+plot(AirPassengers, 
+     xlab = "Month", 
+     ylab = "Passengers",
+     main = "International Airline Passengers, 1949-1960")
+```
+
+Start and End
+```{r}
+# View the start and end dates of AirPassengers
+start(AirPassengers)
+end(AirPassengers)
+```
+
+```{r}
+time(AirPassengers) #calculates a vector of time indices, with one element for each time index on which the series was observed
+```
+
+```{r}
+deltat(AirPassengers) # returns the fixed time interval between observations
+```
+
+```{r}
+frequency(AirPassengers) # returns the number of observations per unit time
+```
+
+```{r}
+cycle(AirPassengers) # returns the position in the cycle of each observation
+```
+
+## Missing values
+
+If there are missing observations (NAs) in the time series, it is common practice to impute values with the time series mean.
+
+Suppose AirPassengers is missing 12 months of data. The code below replaces the NAs with the mean and overlays the result in the original plot.
+
+```{r}
+x <- AirPassengers
+x[85:96] <- NA
+plot(x)
+x[which(is.na(x))] <- mean(x, na.rm = TRUE)
+points(x, type = "l", col = 2, lty = 3)
+```
+
+## Basic time series objects
+
+The ts() function creates time series objects. A ts object is a vector or matrix with additional attributes, including time indices for each observation, the sampling frequency and time increment between observations, and the cycle length for periodic data.
+
+If the time series is continuous, its points may or may not be evenly spaced. If it is discrete, the points are necesarily evenly spaced.
+```{r}
+# Create a time series of quarterly data starting in 2017
+x <- rnorm(n = 20)
+x.ts <- ts(x, 
+           start = 2014, 
+           frequency = 4)
+plot(x.ts, 
+     xlab = "Quarter",
+     type = "b")
+```
+```{r}
+# Check whether object is a ts object
+
+is.ts(x)
+is.ts(x.ts)
+```
+
+The xts object (extensible TS) is an alternative to ts. Create an xts object with xts(x, order.by) where x is the the data and order.by is a vector of dates/times to index the data.
+```{r}
+library(xts)
+x.xts <- xts(x, 
+             order.by = seq(as.Date("2017-01-01"), 
+                          length = 20, 
+                          by = "quarters"))
+plot(x.xts, 
+     xlab = "Quarter",
+     type = "b")
+```
+
+Dataset EuStockMarkets from the datasets package has multiple series. EuStockMarkets contains daily closing prices of major European stock indices from 1991-1998: Germany (DAX), Switzerland (SMI), France (CAC), and the UK (FTSE).
+
+PLot vs ts.plot
+```{r}
+
+ts.plot(EuStockMarkets, # ts.plot
+        col = 1:4, 
+        xlab = "Year", 
+        ylab = "Index Value", 
+        main = "Major European Stock Indices, 1991-1998")
+legend("topleft", 
+       colnames(EuStockMarkets), 
+       lty = 1, 
+       col = 1:4, 
+       bty = "n")
+#just plot
+plot(EuStockMarkets, 
+        col = 1:4, 
+        xlab = "Year", 
+        ylab = "Index Value", 
+        main = "Major European Stock Indices, 1991-1998")
+legend("topleft", 
+       colnames(EuStockMarkets), 
+       lty = 1, 
+       col = 1:4, 
+       bty = "n")
+```
+
+# Chapter 2 : Prediction
+
+## White Noise models is the simplest example of a stationary process.
+
+The <i>weak white noise </i>:
+<li> A fixed, constant mean  </li>
+<li> A fixed, constant variance.  </li>
+<li> No correlation over time </li>
+
+The White Noise (WN) model is the simplest example of a stationary process. It has a fixed mean and variance. The WN model is one of several autoregressive integrated moving average (ARIMA) models. An ARIMA(<b>p, d, q</b>) model has 3 parts:
+<li>the autoregressive order p (number of time lags), </li>
+<li>the order of integration (or differencing) d, </li>
+<li>and the moving average order q. </li>
+
+When two out of the three terms are zeros, the model may be referred to based on the non-zero parameter, dropping "AR", "I" or "MA" from the acronym describing the model. For example, ARIMA (1, 0,0) is AR(1), ARIMA(0,1,0) is I(1), and ARIMA(0,0,1) is MA(1). The WN model is ARIMA(0,0,0).
+
+Simulate a WN time series using the <i>arima.sim()</i> function with argument <i>model = list(order = c(0, 0, 0))</i>.
+Here is a 50-period WN model with mean 100 and standard deviation sd of 10.
+
+```{r}
+wn <- arima.sim(model = list(order = c(0, 0, 0)), 
+                n = 50, 
+                mean = 100, 
+                sd = 10)
+ts.plot(wn,
+        xlab = "Period", 
+        ylab = "", 
+        main = "WN Model, mean = 100, sd = 10")
+```
+
+Fit a WN model to a dataset with arima(x, order = c(0, 0, 0)). The model returns the mean, var, and se.
+```{r}
+arima(wn, order = c(0, 0, 0))
+```
+
+The model mean will be identical to the series mean. The variance will be close to the series variance.
+```{r}
+mean(wn)
+```
+
+```{r}
+# se ~ s.e.
+sqrt(var(wn) / length(wn))
+```
+
+```{r}
+var(wn)
+```
+
+## The random walk (RW) model is a simple example of a non-stationary process:
+
+<li>No specied mean or variance. </li>
+<li>Strong dependence over time. </li>
+<li>Its changes or increments are white noise (WN). </li>
+
+<span class="math inline">\(Y_t = c + Y_{t-1} + \epsilon_t\)</span> where <span class="math inline">\(c\)</span> is the drift coefficient, an overall slope parameter.
+
+Simulate a RW time series using the <code>arima.sim()</code> function with argument <code>model = list(order = c(0, 1, 0))</code>. Here is a 50-period RW model with <code>mean</code> 0.
+```{r}
+rw <- arima.sim(model = list(order = c(0, 1, 0)), 
+                n = 50)
+ts.plot(rw,
+        xlab = "Period", 
+        ylab = "", 
+        main = "RW Model, mean = 0")
+```
+
+The first difference of a RW model is just a WN model
+```{r}
+ts.plot(diff(rw),
+        xlab = "Period", 
+        ylab = "", 
+        main = "Diff(RW) = WN")
+```
+
+Specify the drift parameter with mean. The drift parameter is the slope of the RW model.
+```{r}
+rw <- arima.sim(model = list(order = c(0, 1, 0)), 
+                n = 100, 
+                mean = 1)
+ts.plot(rw,
+        xlab = "Period", 
+        ylab = "", 
+        main = "RW Model, mean = 1")
+```
+
+Fit a random walk model with drift by first differencing the data, then fitting the WN model to the differenced data. The arima() intercept is the drift variable.
+```{r}
+wn.mod <- arima(diff(rw), 
+                order = c(0, 0, 0))
+
+ts.plot(rw)
+abline(a = 0, b = wn.mod$coef)
+
+rw.mod <- arima(rw, 
+                order = c(0, 1, 0))
+points(rw - residuals(rw.mod), type = "l", col = 2, lty = 2)
+```
+
+When dealing with time series data, ask first if it stationary because stationary models are much simpler. A stationary process oscillates randomly about a fixed mean, a phenomenon called reversion to the mean. In contrast, nonstationary processes have time trends, periodicity, or lack mean reversion. Even when a process is nonstationary, the changes in the series may be approximately stationary. For example, inflation rates show a pattern over time related to Federal Reserve policy, but the changes in interest rates are stationary.
+
+WN processes are stationary, but RW processes (the cumulative sum of the WN process) are not. Here are plots of a WN process and corresponding RW process using the cumsum() of the WN. Only the WN process is stationary.
+
+```{r}
+# White noise
+wn <- arima.sim(model = list(order = c(0, 0, 0)), 
+                n = 100) 
+
+# Random walk from white noise
+rw <- cumsum(wn)
+
+# Use arima.sim() to generate WN drift data
+wn_drift <- arima.sim(model = list(order = c(0, 0, 0)), n = 100, mean = 0.4)
+
+# Use cumsum() to convert your WN drift data to RW
+rw_drift <- cumsum(wn_drift)
+  
+plot.ts(cbind(wn, rw, wn_drift, rw_drift),
+        xlab = "Period",
+        main = "WN with Zero Mean, and Corresponding RW and with Drifts")
+```
+
+# Chapter 3: Correlation analysis and the autocorrelation function
+
+Instead of comparing the plots of two time series, it is often useful to measure the correlation between two time seies by plotting the one time series against the other. E.g., in finance it is common to plot one stock's price or log return against another stock.1
+
+Here is a short diversion into the relationship between log returns and stock prices. Below is the Germany DAX stock index from the EuStockMarkets dataset, and the corresponding log return. Daily returns are typically small with near-zero average.
+
+```{r}
+DAX <- EuStockMarkets[, 1]
+lnDiff <- diff(log(EuStockMarkets[,1]))
+plot.ts(cbind(DAX, 
+           lnDiff),
+        xlab = "",
+        main = "Germany DAX Stock Index, 1991-1998")
+```
+
+The occasionally extreme returns create a heavy-tailed distribution. Looking at all the indices in EuStockMarkets, the average daily return is about 0 with a standard deviation of 1%, but the histogram and normal probability plots reveal some daily returns are almost 5% in magnitude. The distribution of log returns is non-normal, especially in the tails.
+
+```{r}
+eu_pctrtn <- diff(log(EuStockMarkets))
+str(eu_pctrtn)
+
+# column means
+colMeans(eu_pctrtn)
+```
+
+```{r}
+# Use apply to calculate sample variance from eu_percentreturns
+apply(eu_pctrtn, MARGIN = 2, FUN = var)
+```
+
+```{r}
+# Use apply to calculate standard deviation from eu_percentreturns
+apply(eu_pctrtn, MARGIN = 2, FUN = sd)
+```
+
+```{r SD_Histogr_Qtl, eval=FALSE, include=FALSE}
+# Use apply to calculate standard deviation from eu_percentreturns
+apply(eu_pctrtn, MARGIN = 2, FUN = sd)
+
+# Display a histogram of percent returns for each index
+par(mfrow = c(2,2))
+apply(eu_pctrtn, MARGIN = 2, FUN = hist, main = "Hist of % returns", xlab = "Percentage Return")
+
+# Display normal quantile plots of percent returns for each index
+par(mfrow = c(2,2))
+apply(eu_pctrtn, MARGIN = 2, FUN = qqnorm, main = "Qtl of % returns ")
+qqline(eu_pctrtn)
+```
+Note that the vast majority of returns are near zero, but some daily returns are greater than 5 percentage points in magnitude. Similarly, note the clear departure from normality, especially in the tails of the distributions, as evident in the normal quantile plots
+
+Plotting pairs of data
+```{r}
+
+# Make a scatterplot matrix of eu_stocks
+pairs(EuStockMarkets)
+
+# Convert eu_stocks to log returns
+logreturns <- diff(log(EuStockMarkets))
+
+# Plot logreturns
+plot(logreturns)
+
+
+# Make a scatterplot matrix of logreturns
+pairs(logreturns)
+```
+
+## Covariance and correlation
+
+Sample covariances measure the strength of the linear relationship between matched pairs of variables, but they are not scale free and they can be difficult to directly interpret. Correlation is the standardized version of covariance that ranges in value from -1 to 1, where values close to 1 in magnitude indicate a strong linear relationship between pairs of variables. 
+
+```{r}
+# covariance
+cov(diff(log(EuStockMarkets)))
+# correlation
+cor(diff(log(EuStockMarkets)))
+```
+Quantify the correlation between two quantitative variables with the Pearson correlation coefficient. Recall that the covariance between series <span class="math inline">\(X\)</span> and <span class="math inline">\(Y\)</span> is defined <span class="math inline">\(Cov(X, Y) = E[(X - \mu_X) (Y - \mu_Y)]\)</span> and this simplifies to <span class="math inline">\(Cov(X, Y) = E[XY] - \mu_X \mu_Y\)</span>. The covariance of <span class="math inline">\(X\)</span> and <span class="math inline">\(Y\)</span> is positive if <span class="math inline">\(X\)</span> and <span class="math inline">\(Y\)</span> increase together and negative if they move in opposite directions. If <span class="math inline">\(X\)</span> and <span class="math inline">\(Y\)</span> are independent, <span class="math inline">\(E[XY] = E[X]E[Y] = \mu_X \mu_Y\)</span>, so <span class="math inline">\(Cov(X, Y) = 0\)</span>. Covariances are often inconvenient because their values depend on the units of the series. Dividing <span class="math inline">\(Cov(X, Y)\)</span> by the standard deviations <span class="math inline">\(\sigma_X \sigma_Y\)</span> creates a unitless variable with range [-1, 1], also known as the Pearson correlation:</p>
+<p><span class="math display">\[\rho = \frac{\sigma_{XY}} {\sigma_X \sigma_Y}.\]</span></p>
+<p>Incidentally, <span class="math inline">\(\rho\)</span> is related to the slope of the linear regression line: <span class="math inline">\(\beta_1 = \frac{\sigma_{XY}}{\sigma_X^2} = \rho \frac{\sigma_Y}{\sigma_X}\)</span>.</p>
+<p>Here are the correlations of the <code>EuStockMarket</code> dataset indices 0.3 is typically considered small, =0.5 is medium, and > 0.5 is considered large. All pairs of the indices below have a large correlation.</p>
+
+## Autocorrelation
+
+Autocorrelations (aka, lagged correlations) assess whether a time series is dependent on its past. The lag-1 autocorrelation of <span class="math inline">\(x\)</span> is <span class="math inline">\(Cor(X_t, X_{t-1})\)</span>. Here is a lag-1 autocorrelation plot of Germany's <code>DAX</code> stock index from the <code>EuStockMarkets</code> dataset.
+```{r}
+plot(EuStockMarkets[-1, "DAX"],
+     EuStockMarkets[-nrow(EuStockMarkets), "DAX"],
+     main = "Lag-1 Autocorrelation of DAX Index",
+     ylab = "t",
+     xlab = "t - 1")
+
+```
+
+The autocorrelation function (ACF) acf() calculates the lag autocorrelation. There are two ways to use this function. Specify lag.max and plot = FALSE to see a list of autocorrelations up to lag.max. Specify plot = TRUE (default) to see a visual representation of the autocorrelation. The lag-1 autocorrelation from the DAX index plotted above is 0.997. (The first row shows the lags.)
+```{r}
+acf(EuStockMarkets[, "DAX"], lag.max = 1, plot = FALSE)
+```
+
+The numeric estimates are important for detailed calculations, but it is also useful to visualize the ACF as a function of the lag. The acf() function produces a figure by default. It also makes a default choice for lag.max, the maximum number of lags to be displayed. Here is the ACF plot for the DAX stock index in EuStockMarkets.
+```{r}
+acf(EuStockMarkets[, "DAX"])
+
+```
+
+# Chapter 4: Autoregression
+
+<p>The autoregressive (AR) model is the most widely used time series model. It shares the familiar interpretation of a simple linear regression, but each observation is regressed on the previous observation.</p>
+<p><span class="math display">\[Y_t - \mu = \phi(Y_{t-1} - \mu) + \epsilon_t\]</span></p>
+<p>where <span class="math inline">\(\epsilon_t \sim WN(0, \sigma_\epsilon^2)\)</span>. The AR model also includes the white noise (WN) and random walk (RW) models as special cases.</p>
+<p>The <code>arima.sim()</code> function can simulate data from an AR model by setting the <code>model</code> argument equal to <code>list(ar = phi)</code> where <code>phi</code> is a slope parameter in the interval (-1, 1). As <code>phi</code> approaches 1, the plot smooths. With negative <code>phi</code> values, the plot oscillates.</p>
+```{r}
+# small autocorrelation
+x <- arima.sim(model = list(ar = 0.5), n = 100)
+
+# large autocorrelation
+y <- arima.sim(model = list(ar = 0.9), n = 100)
+
+# negative autocorrelation (oscillation)
+z <- arima.sim(model = list(ar = -0.75), n = 100)
+
+plot.ts(cbind(x, y, z))
+```
+
+The plots generated by the acf() function provide useful information about each lag. Series x (small slope parameter) has positive autocorrelation for the first couple lags, but they quickly decay toward zero. Series y (large slope parameter) has positive autocorrelation for many lags. Series z (negative slope parameter) has an oscillating pattern.
+```{r}
+par(mfrow = c(2,2))
+acf(x)
+acf(y)
+acf(z)
+```
+
+The stationary AR model has a slope parameter between -1 and 1. The AR model exhibits higher persistence when its slope parameter is closer to 1, but the process reverts to its mean fairly quickly. Its sample ACF also decays to zero at a quick (geometric) rate, meaning values far in the past have little impact on the present value of the process.
+
+Below, the AR model with slope parameter 0.98 exhibits greater persistence than with slope parameter 0.90, but both decay to 0.
+```{r}
+ar90 <- arima.sim(model = list(ar = 0.9), n = 200)
+ar98 <- arima.sim(model = list(ar = 0.98), n = 200)
+
+par(mfrow = c(2,2))
+ts.plot(ar90)
+ts.plot(ar98)
+acf(ar90)
+acf(ar98)
+
+```
+
+By contrast, the random walk (RW) model is a special case of the AR model in which the slope parameter is equal to 1. The RW model is nonstationary, and shows considerable persistence and relatively little decay in the ACF.
+```{r}
+ar100 <- arima.sim(model = list(order = c(0, 1, 0)), n = 200)
+par(mfrow = c(2,1))
+ts.plot(ar100)
+acf(ar100)
+```
+
+## AR model estimation and forecasting
+
+<p>Fit the AR(1) model (autoregressive model with one time lag) using the <code>arima()</code> function with <code>order = c(1, 0, 0)</code>, meaning 1 time lag, 0 differencing, and 0 order moving average.</p>
+<p>Below is an AR(1) model fit to the <code>AirPassengers</code> dataset. The output of the <code>arima</code> function shows <span class="math inline">\(\phi\)</span> as <code>ar1 = 0.9646</code>, <span class="math inline">\(\mu\)</span> as <code>intercept = 278.4649</code>, and <span class="math inline">\(\hat{\sigma}_\epsilon^2\)</span> as <code>sigma^2 = 1119</code>.</p>
+
+```{r}
+ar1 <- arima(AirPassengers, order = c(1, 0, 0))
+ar1.fit <- AirPassengers - residuals(ar1)
+print(ar1)
+```
+```{r}
+par(mfrow = c(2, 1))
+ts.plot(AirPassengers)
+points(ar1.fit, type = "l", col = 2, lty = 2)
+acf(AirPassengers)
+```
+
+## Simple forecasts from an estimated AR model
+
+Use the ARIMA model to forecast observations with the predict() function. Specify the number of periods beyond the last observation with the n.ahead parameter.
+
+Below is a forecast of 10 periods (years) beyond the 1871-1970 annual observations in the Nile dataset. The relatively wide band of confidence (dotted lines) is a result of the low persistence in the data.
+```{r}
+# Fit an AR model to Nile
+AR_fit <- arima(Nile, order = c(1,0,0))
+print(AR_fit)
+
+# Use predict() to make a 1-step forecast
+predict_AR <- predict(AR_fit)
+
+# Obtain the 1-step forecast using $pred[1]
+predict_AR$pred[1]
+
+# Use predict to make 1-step through 10-step forecasts
+predict(AR_fit, n.ahead = 10)
+```
+
+```{r echo=TRUE}
+# Run to plot the Nile series plus the forecast and 95% prediction intervals
+ts.plot(Nile, xlim = c(1871, 1980))
+AR_forecast <- predict(AR_fit, n.ahead = 10)$pred
+AR_forecast_se <- predict(AR_fit, n.ahead = 10)$se
+points(AR_forecast, type = "l", col = 2)
+points(AR_forecast - 2*AR_forecast_se, type = "l", col = 2, lty = 2)
+points(AR_forecast + 2*AR_forecast_se, type = "l", col = 2, lty = 2)
+
+```
+
+# Chapter 5: A simple moving average (used to account for very short-run autocorrelation)
+
+<p>The simple moving average (MA) model is</p>
+<p><span class="math display">\[Y_t = \mu + \epsilon_t + \theta\epsilon_{t-1}\]</span></p>
+<p>If the slope parameter <span class="math inline">\(\theta\)</span> is zero, <span class="math inline">\(Y_t\)</span> is a white noise process, <span class="math inline">\(Y_t \sim (\mu, \sigma_\epsilon^2)\)</span>. Large <span class="math inline">\(\theta\)</span> indicates large autocorrelation. Negative <span class="math inline">\(\theta\)</span> indicates an oscillating series.</p>
+<p>The MA model is used to account for very short-run autocorrelation. Each observation is regressed on the previous innovation, which is not actually observed. Like the AR model, the MA model includes the white noise (WN) model as special case.</p>
+<p>Simulate the MA model using <code>arima.sim()</code> with parameter <code>list(ma = theta)</code>, where <code>theta</code> is a slope parameter from the interval (-1, 1).</p>
+<p>Here are three MA models. The first has slope paramter 0.5 and the second has slope parameter 0.9. The second plot shows more persistance as a result. THe third plot has a negative slope parameter and oscillates as a result.</p>
+```{r}
+# Generate MA model with slope 0.5
+x <- arima.sim(model = list(ma = 0.5), n = 100)
+
+# Generate MA model with slope 0.9
+y <- arima.sim(model = list(ma = 0.9), n = 100)
+# Generate MA model with slope -0.5
+z <- arima.sim(model = list(ma = -0.5), n = 100)
+
+# Plot all three models together
+plot.ts(cbind(x,y,z))
+```
+
+Use the acf() function to estimate the autocorrelation functions. The MA series x with slope = 0.5 has a positive sample autocorrelation at the first lag, but it is approximately zero at other lags. The series y with slope = 0.9 has a larger sample autocorrelation at its first lag, but it is also approximately zero for the others. The series z with slope = -0.5 has a negative sample autocorrelation at the first lag and alternates, but is approximately zero for all higher lags
+```{r}
+# Calculate ACF for x
+acf(x)
+
+# Calculate ACF for y
+acf(y)
+
+# Calculate ACF for z
+acf(z)
+```
+
+MA model estimation and forecasting
+
+Fit the MA model using the arima() function with `order = c(0, 0, 1), meaning 0 time lag, 0 differencing, and 1st order moving average.
+
+Below is an MA model fit to the Nile dataset. The output of the arima function shows ?? as ma1 = 0.3783, ?? as intercept = 919.2433, and ??2?? as sigma^2 = 23272.
+```{r}
+MA <- arima(Nile, order = c(0, 0, 1))
+print(MA)
+```
+```{r} 
+ts.plot(Nile)
+MA.fit <- Nile - resid(MA)
+points(MA.fit, type = "l", col = 2, lty = 2)
+```
+
+Use the ARIMA model to forecast observations with the predict() function. The MA model can only produce a 1-step forecast. Except for the 1-step forecast, all forecasts from the MA model are equal to the estimated mean (intercept).
+
+Below is a forecast of 10 periods (years) beyond the 1871-1970 annual observations in the Nile dataset.
+```{r}
+# Make a 1-step forecast based on MA
+predict_MA <- predict(MA)
+
+# Obtain the 1-step forecast using $pred[1]
+predict_MA$pred[1] 
+
+# Make a 1-step through 10-step forecast based on MA
+predict(MA, n.ahead = 10)
+
+# Plot the Nile series plus the forecast and 95% prediction intervals
+ts.plot(Nile, xlim = c(1871, 1980))
+MA_forecasts <- predict(MA, n.ahead = 10)$pred
+MA_forecast_se <- predict(MA, n.ahead = 10)$se
+points(MA_forecasts, type = "l", col = 2)
+points(MA_forecasts - 2*MA_forecast_se, type = "l", col = 2, lty = 2)
+```
+
+<b>MA model: </b>
+Today = Mean + Noise + Slope ??? (Yesterday's Noise)
+
+<b>AR model: </b>
+(Today ??? Mean) = Slope ??? (Yesterday ??? Mean) +Noise
+
+How do you decide which model provides the best fit? Measure the model fit with the Akaike information criterion (AIC) and/or Bayesian information criterion (BIC). These indicators penalize models with more estimated parameters to avoid overfitting, so smaller indicator values are preferable.
+
+Use the AIC() and BIC() functions to estimate the indicators. Below are the AIC and BIC for the AR(1) and MA models. Although the predictions from both models are similar (they have a correlation coeffiicent of 0.94), both the AIC and BIC indicate that the AR model is a slightly better fit for the Nile data.
+
+```{r}
+#cor(ar1.fit, MA.fit) =0.9
+AIC(ar1)
+AIC(MA)
+BIC(ar1)
+BIC(MA)
+```
+
+ 
