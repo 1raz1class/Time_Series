@@ -1,0 +1,832 @@
+---
+title: "Forecasting_TimeSeries"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Libraries
+```{r Libraries, include=FALSE}
+library(readxl)
+library(openxlsx)
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(fpp2)
+```
+
+```{r}
+# Read the data from Excel into R
+mydata <- read_excel("exercise1.xlsx", sheet="tute1") # net interest margins for US banks dataset
+
+# Look at the first few lines of mydata
+head(mydata)
+
+```
+
+# Chapter 1: Exploring and visualizing time series in R
+```{r}
+
+# Create a ts object called myts
+myts <- ts(mydata[, 2:4], start = c(1981, 1), frequency = 4)
+"Set the year as 1981 and period as 1 (since March belongs to the first quarter of the year) for the start date in form c(year, period).
+Set the frequency value to 4 because the contents of mydata are quarterly."
+
+autoplot(myts, facets = TRUE) + ggtitle("Facets = TRUE")
+autoplot(myts, facets = FALSE) + ggtitle("Facets = FALSE")
+
+```
+
+Time Series Plots for gas, gold, wool datasets
+
+```{r}
+str(gold) #containing gold prices in US dollars
+head(gold,50)
+# Find the outlier in the gold series
+goldoutlier <- which.max(gold)
+autoplot(gold) + ggtitle("Gold")
+```
+
+```{r}
+str(gas) # containing Australian gas production
+frequency(gas)
+head(gas,50)
+autoplot(gas) + ggtitle("Gas")
+
+```
+```{r}
+str(woolyrnq) # containing information on the production of woollen yarn in Australia
+frequency(woolyrnq)
+head(woolyrnq,50)
+autoplot(woolyrnq) + ggtitle("Wool")
+```
+
+## Seasonal Plots
+```{r}
+# Create plots of the a10 data: contains monthly sales volumes for anti-diabetic drugs in Australia
+autoplot(a10) + ggtitle("a10")
+ggseasonplot(a10) + ggtitle("seasonplot")
+ggseasonplot(a10, polar=TRUE) + ggtitle("polar")
+
+```
+
+```{r fig.height=3, fig.width=7}
+# Restrict the ausbeer data to start in 1992, which contains quarterly beer production for Australia. 
+beer <- window(ausbeer, start = 1992)
+
+# Make plots of the beer data
+autoplot(beer)
+ggsubseriesplot(beer)
+```
+
+## Autocorrelation of non-seasonal time series
+```{r}
+str(oil)
+
+frequency(oil) # annual
+
+# Create an autoplot of the oil data :annual oil production in Saudi Arabia from 1965-2013 
+autoplot(oil)
+
+# Create a lag plot of the oil data
+gglagplot(oil, lag=9)
+
+# Create an ACF plot of the oil data
+ggAcf(oil)
+```
+
+Lag plots
+```{r}
+beer2 <- window(ausbeer, start=1992)
+autoplot(beer2)
+ggseasonplot(beer2)
+gglagplot(beer2)
+```
+The lines connect points in chronological order. The relationship is strongly positive at lags 4 and 8, reflecting the strong seasonality in the data. The negative relationship seen for lags 2 and 6 occurs because peaks (in Q4) are plotted against troughs (in Q2)
+
+## Autocorrelation of seasonal and cyclic time series
+
+<li>Trends induce positive correlations in the early lags. </li>
+<li>Seasonality will induce peaks at the seasonal lags. </li>
+<li>Cyclicity induces peaks at the average cycle length </li>
+
+
+```{r}
+#When data are either seasonal or cyclic, the ACF will peak around the seasonal lags or at the average cycle length.
+# Plot the annual sunspot numbers
+autoplot(sunspot.year)
+ggAcf(sunspot.year)
+
+```
+
+```{r}
+# Plot the traffic on the Hyndsight blog
+autoplot(hyndsight)
+ggAcf(hyndsight)
+```
+
+Spot white noise
+```{r}
+# Plot the original series
+autoplot(goog)
+
+# Plot the differenced series: daily changes
+autoplot(diff(goog))
+
+# ACF of the differenced series
+ggAcf(diff(goog))
+
+# Ljung-Box test of the differenced series: a p-value greater than 0.05 suggests that the data are not significantly different from white noise
+Box.test(diff(goog), lag = 10, type = "Ljung") # here p =0.2169 ==> Ljung-Box test was not significant, so daily changes in the Googple price stocks look like white noise
+```
+
+# Chapter 2: Benchmark methods and forecast accuracy
+
+Naive forecasting methods
+```{r}
+# forecast is mean /median previsions
+
+# Use naive() to forecast the goog series
+fcgoog <- naive(goog, h=20)
+
+# Plot and summarize the forecasts
+autoplot(fcgoog)
+summary(fcgoog)
+```
+
+Snaive for seanability
+
+```{r}
+# Use snaive() to forecast the ausbeer seasonal series
+fcbeer <- snaive(ausbeer, h=4* frequency(ausbeer))
+
+# Plot and summarize the forecasts
+autoplot(fcbeer)
+summary(fcbeer)
+```
+
+## Fitted Values and residuals
+
+<b>Residuals should look like white noise </b>
+<i>Essential assumptions: </i>
+<li>They should be uncorrelated </li>
+<li>They should have mean zero </li>
+<i>Useful properties (for computing prediction intervals) </i>
+<li>They should have constant variance </li>
+<li>They should be normally distributed </li>
+We can test these assumptions using the <i>checkresiduals()</i> function.
+
+```{r}
+# Checking residuals
+# Check the residuals from the naive forecasts applied to the goog series
+goog %>% naive() %>% checkresiduals()
+
+# Do they look like white noise (TRUE or FALSE)
+googwn <- TRUE
+
+# Check the residuals from the seasonal naive forecasts applied to the ausbeer series
+ausbeer %>% snaive() %>% checkresiduals()
+
+# Do they look like white noise (TRUE or FALSE)
+beerwn <- FALSE
+```
+
+## Training and test sets
+
+<i>Forecast "error" </i> = the difference between observed value and its forecast in the test set. Compute accuracy using forecast errors on test data
+<b>≠ residuals </b>
+<li>which are errors on the training set (vs. test set) </li>
+<li>which are based on one-step forecasts (vs. multi-step) </li>
+
+Evaluating forecast accuracy of non-seasonal methods
+```{r}
+# Create the training data as train
+train <- subset(gold, end = 1000)
+
+# Compute naive forecasts and save to naive_fc
+naive_fc <- naive(train, h = 108)
+
+# Compute mean forecasts and save to mean_fc
+mean_fc <- meanf(train, h = 108)
+
+# Use accuracy() to compute RMSE statistics
+accuracy(naive_fc, gold)
+accuracy(mean_fc, gold)
+
+# Assign one of the two forecasts as bestforecasts
+bestforecasts <- naive_fc
+```
+
+Evaluating forecast accuracy of seasonal methods
+```{r}
+# Create three training series omitting the last 1, 2, and 3 years
+train1 <- window(arrivals[, "UK"], end = c(2011, 4))
+train2 <- window(arrivals[, "UK"], end = c(2010, 4))
+train3 <- window(arrivals[, "UK"], end = c(2009, 4))
+
+# Produce forecasts using snaive()
+fc1 <- snaive(train1, h = 1 * frequency(train1))
+fc2 <- snaive(train2, h = 1 * frequency(train2))
+fc3 <- snaive(train3, h = 1 * frequency(train3))
+# Use accuracy() to compare the MAPE of each series
+accuracy(fc1, arrivals[, "UK"])["Test set", "MAPE"]
+accuracy(fc2, arrivals[, "UK"])["Test set", "MAPE"]
+accuracy(fc3, arrivals[, "UK"])["Test set", "MAPE"]
+```
+
+## Time series cross-validation
+
+```{r}
+# Using tsCV() for time series cross-validation
+
+# Compute cross-validated errors for up to 8 steps ahead
+e <- tsCV(goog, forecastfunction = naive, h = 8)
+
+# Compute the MSE values for each horizon and remove missing values
+mse <- colMeans(e^2, na.rm = TRUE)
+
+# Plot the MSE values against the forecast horizon
+data.frame(h = 1:8, MSE = mse) %>%
+  ggplot(aes(x = h, y = MSE)) + geom_point()
+
+```
+
+# Time Series Decomposition
+
+ The first step in a classical decomposition is to use a moving average method to estimate the trend-cycle, so we begin by discussing moving averages.
+ 
+```{r}
+autoplot(elecsales, series="Data") +
+  autolayer(ma(elecsales,5), series="5-MA") +
+  xlab("Year") + ylab("GWh") +
+  ggtitle("Annual electricity sales: South Australia + Trend-Cycle") +
+  scale_colour_manual(values=c("Data"="grey50","5-MA"="red"),
+                      breaks=c("Data","5-MA"))
+```
+
+Decomposition
+```{r}
+par=c(1,2)
+elecequip %>% decompose(type = "multiplicative") %>%
+  autoplot() + xlab("Year") +
+  ggtitle("Classical multiplicative decomposition of electrical equipment index")
+
+elecequip %>% decompose(type = "additive") %>%
+  autoplot() + xlab("Year") +
+  ggtitle("Classical additive decomposition of electrical equipment index")
+```
+
+X11 Decomposition
+```{r}
+library(seasonal)
+elecequip %>% seas(x11="") -> fit
+autoplot(fit) +
+  ggtitle("X11 decomposition of electrical equipment index")
+#The X11 trend-cycle has captured the sudden fall in the data in early 2009 better than either of the other two methods, and the unusual observation at the end of 2009 is now more clearly seen in the remainder component
+```
+
+Given the output from the seas() function, seasonal() will extract the seasonal component, trendcycle() will extract the trend-cycle component, remainder() will extract the remainder component, and seasadj() will compute the seasonally adjusted time series.
+```{r}
+autoplot(elecequip, series="Data") +
+  autolayer(trendcycle(fit), series="Trend") +
+  autolayer(seasadj(fit), series="Seasonally Adjusted") +
+  xlab("Year") + ylab("New orders index") +
+  ggtitle("Electrical equipment manufacturing (Euro area)") +
+  scale_colour_manual(values=c("gray", "blue","red"),
+             breaks=c("Data","Seasonally Adjusted","Trend"))
+```
+
+```{r}
+# It can be useful to use seasonal plots and seasonal sub-series plots of the seasonal component. These help us to visualise the variation in the seasonal component over time
+
+fit %>% seasonal() %>% ggsubseriesplot() + ylab("Seasonal")
+```
+
+SEATS decomposition: Seasonal Extraction in ARIMA Time Series
+```{r}
+library(seasonal)
+elecequip %>% seas() %>%
+autoplot() +
+  ggtitle("SEATS decomposition of electrical equipment index")
+```
+
+
+
+# Chapter 3: Exponential smoothing
+
+Forecasts produced using exponential smoothing methods are weighted averages of past observations, with the weights decaying exponentially as the observations get older. In other words, the more recent the observation, the higher the associated weight. This framework generates reliable forecasts quickly and for a wide range of time series, which is a great advantage and of major importance to applications in business.
+
+This method is suitable for forecasting data with no clear trend or seasonal pattern
+
+```{r}
+# Use ses() to forecast the next 10 years of winning times
+fc <- ses(marathon, h = 10)
+
+# Use summary() to see the model parameters
+summary(fc)
+
+# Use autoplot() to plot the forecasts
+autoplot(fc)
+
+# Add the one-step forecasts for the training data to the plot
+autoplot(fc) + autolayer(fitted(fc))
+```
+
+SES vs NAIVE
+```{r}
+# Create a training set using subset()
+train <- subset(marathon, end = length(marathon) - 20)
+
+# Compute SES and naive forecasts, save to fcses and fcnaive
+fcses <- ses(train, h = 20)
+fcnaive <- naive(train, h = 20)
+
+# Calculate forecast accuracy measures
+accuracy(fcses, marathon)
+accuracy(fcnaive, marathon)
+
+# Save the best forecasts as fcbest
+fcbest <- fcnaive
+```
+
+## Exponential smoothing methods with trends: Holt
+```{r}
+# extended simple exponential smoothing to allow the forecasting of data with a trend. This method involves a forecast equation and two smoothing equations (one for the level and one for the trend)
+
+# Produce 10 year forecasts of austa using holt()
+fcholt <- holt(austa, h=10)
+
+# Look at fitted model using summary()
+summary(fcholt)
+
+# Plot the forecasts
+autoplot(fcholt)
+
+# Check that the residuals look like white noise
+checkresiduals(fcholt)
+```
+
+Holt with DUMP
+
+"In conjunction with the smoothing parameters alpha and beta ∗ (with values between 0 and 1 as in Holt’s method), this method also includes a damping parameter 0< phi <1
+
+```{r}
+#Holt dump
+
+fc <- holt(AirPassengers, h=15)
+fc2 <- holt(AirPassengers, damped=TRUE, phi = 0.9, h=15)
+autoplot(AirPassengers) +
+  autolayer(fc, series="Holt's method", PI=FALSE) +
+  autolayer(fc2, series="Damped Holt's method", PI=FALSE) +
+  ggtitle("Forecasts from Holt's method") + xlab("Year") +
+  ylab("Air passengers in Australia (millions)") +
+  guides(colour=guide_legend(title="Forecast"))
+
+```
+
+## Exponential smoothing methods with trend and seasonality
+
+Holt-Winters with monthly data: Additive + Multiplicative
+```{r}
+
+# Produce 3 year forecasts for the monthly sales of anti-diabetic drugs in Australia from 1991 to 2008
+fc_1<- hw(a10, seasonal = "additive", h = 36)
+fc_2<- hw(a10, seasonal = "multiplicative", h = 36)
+
+# Check if residuals look like white noise
+checkresiduals(fc_1)
+checkresiduals(fc_1)
+
+# Plot forecasts
+autoplot(a10) +
+  autolayer(fc_1, color="red") +
+  autolayer(fc_2, color="green") +
+  ggtitle("Forecasts from Holt's method: Additive & Multiplicative") + xlab("Year") +
+  ylab("Monthly sales of antidiabetic drugs in AU")  +
+  guides(colour = guide_legend(title="Forecast")) 
+```
+
+Holt-Winters method with daily data
+```{r}
+# Create training data with subset()
+train <- subset(hyndsight, end = length(hyndsight) - 28)
+
+# Holt-Winters additive forecasts as fchw
+fchw <- hw(train, seasonal = "additive", h = 28)
+
+# Seasonal naive forecasts as fcsn
+fcsn <- snaive(train, h = 28)
+
+# Find better forecasts with accuracy()
+forecast::accuracy(fchw, hyndsight)
+forecast::accuracy(fcsn, hyndsight)
+
+# Plot the better forecasts
+autoplot(fchw)
+```
+
+## Forecasting with ETS models : errors, trend, and seasonality (ETS) 
+
+```{r}
+# Fit ETS model to austa in fitaus
+fitaus <- ets(austa)
+summary(fitaus)
+
+# Check residuals
+checkresiduals(fitaus) # passes the jung test
+
+# Plot forecasts
+autoplot(forecast(fitaus))
+```
+
+```{r}
+# Repeat for hyndsight data in fiths
+fiths <- ets(hyndsight)
+summary(fiths)
+checkresiduals(fiths) # fail the jung test
+autoplot(forecast(fiths))
+```
+
+When does ETS fail?
+```{r}
+# Plot the lynx series
+autoplot(lynx)
+
+# Use ets() to model the lynx series
+fit <- ets(lynx)
+
+# Use summary() to look at model and parameters
+summary(fit)
+
+# Plot 20-year forecasts of the lynx series
+fit %>% forecast(h = 20) %>% autoplot()
+```
+
+# Chapter 4 : ARIMA models
+
+Box-Cox transformations for time series
+```{r}
+# Box-Cox transformation to stabilize the variance of the pre-loaded a10 series, which contains monthly anti-diabetic drug sales in Australia from 1991-2008
+
+# Plot the series
+autoplot(a10)
+
+# Try four values of lambda (transform. degree) in Box-Cox transformations
+a10 %>% BoxCox(lambda = 0) %>% autoplot()
+a10 %>% BoxCox(lambda = 0.1) %>% autoplot()
+a10 %>% BoxCox(lambda = 0.2) %>% autoplot()
+a10 %>% BoxCox(lambda = 0.3) %>% autoplot()
+
+# Compare with BoxCox.lambda()
+BoxCox.lambda(a10)
+```
+
+Non-seasonal differencing for stationarity
+```{r}
+# Plot the US female murder rate
+autoplot(wmurders)
+# Plot the differenced murder rate
+diff(wmurders) %>% autoplot()
+
+# Plot the ACF of the differenced murder rate
+diff(wmurders) %>% ggAcf() # looks like white noise after differenciationg
+```
+
+## Seasonal differencing for stationarity
+
+With seasonal data, differences are often taken between observations in the same season of consecutive years, rather than in consecutive periods. For example, with quarterly data, one would take the difference between Q1 in one year and Q1 in the previous year. This is called seasonal differencing.
+
+Sometimes you need to apply both seasonal differences and lag-1 differences to the same series, thus, calculating the differences in the differences.
+```{r}
+# Plot the data
+autoplot(h02)
+
+# Take logs and seasonal differences of h02
+difflogh02 <- diff(log(h02), lag = 12)
+
+# Plot difflogh02
+autoplot(difflogh02)
+
+# Take another difference and plot
+ddifflogh02 <- diff(difflogh02)
+autoplot(ddifflogh02)
+
+# Plot ACF of ddifflogh02
+ggAcf(ddifflogh02)
+
+```
+
+Stationarity and differentiation
+
+```{r}
+cbind("Billion kWh" = usmelec,
+      "Logs" = log(usmelec),
+      "Seasonally\n differenced logs" =
+        diff(log(usmelec),12),
+      "Doubly\n differenced logs" =
+        diff(diff(log(usmelec),12),1)) %>%
+  autoplot(facets=TRUE) +
+    xlab("Year") + ylab("") +
+    ggtitle("Monthly US net electricity generation")
+```
+
+## ARIMA models:  autoregressive integrated moving average 
+
+Automatic ARIMA models for non-seasonal time series
+```{r}
+# Fit an automatic ARIMA model to the austa series : select an appropriate autoregressive integrated moving average (ARIMA) model given a time series
+fit <- auto.arima(austa)
+
+# Check that the residuals look like white noise
+checkresiduals(fit)
+residualsok <- TRUE # p-value > 0.05 (here 0.8067)
+
+# Summarize the model
+summary(fit)
+
+# Find the AICc value and the number of differences used
+AICc <- -14.46
+d <- 1
+
+# Plot forecasts of fit
+fit %>% forecast(h = 10) %>% autoplot()
+```
+
+## Forecasting with ARIMA models
+
+The Arima() function can be used to select a specific ARIMA model. Its first argument, order, is set to a vector that specifies the values of p, d and q. The second argument, include.constant, is a booolean that determines if the constant c, or drift, should be included
+
+<li>p = numb. of lag-1 diff. </li>
+<li>d = nb of ordinary AR lags </li>
+<li>q = nb of ordianry MA lags </li>
+
+```{r}
+par(mfcol=c(2,2))
+# Plot forecasts from an ARIMA(0,1,1) model with no drift
+austa %>% Arima(order = c(0,1,1), include.constant = FALSE) %>% forecast() %>% autoplot()
+
+# Plot forecasts from an ARIMA(2,1,3) model with drift
+austa %>% Arima(order = c(2,1,3), include.constant = TRUE) %>% forecast() %>% autoplot()
+
+# Plot forecasts from an ARIMA(0,0,1) model with a constant
+austa %>% Arima(order = c(0,0,1), include.constant = TRUE) %>% forecast() %>% autoplot()
+
+# Plot forecasts from an ARIMA(0,2,1) model with no constant
+austa %>% Arima(order = c(0,2,1), include.constant = FALSE) %>% forecast() %>% autoplot()
+
+```
+
+## Compare models of different classes : Comparing auto.arima() and ets() on non-seasonal data
+
+The AICc statistic is useful for selecting between models in the same class. For example, you can use it to select an ETS model or to select an ARIMA model. However, you cannot use it to compare ETS and ARIMA models because they are in different model classes.
+
+Instead, you can use time series cross-validation to compare an ARIMA model and an ETS model on the austa data. Because tsCV() requires functions that return forecast objects, you will set up some simple functions that fit the models and return the forecasts. The arguments of tsCV() are a time series, forecast function, and forecast horizon h
+```{r}
+# Set up forecast functions for ETS and ARIMA models
+fets <- function(x, h) {
+  forecast(ets(x), h = h)
+}
+farima <- function(x, h) {
+  forecast(auto.arima(x), h = h)
+}
+
+# Compute CV errors for ETS on austa as e1
+e1 <- tsCV(austa, fets, h = 1)
+
+# Compute CV errors for ARIMA on austa as e2
+e2 <- tsCV(austa, farima, h = 1)
+
+# Find MSE of each model class
+mean(e1^2, na.rm = TRUE)
+mean(e2^2, na.rm = TRUE)
+
+# Plot 10-year forecasts using the best model class
+austa %>% farima(h = 10) %>% autoplot()
+```
+
+## Seasonal ARIMA
+
+<li>D = Number of seasonal differences </li>
+<li>P = Number of seasonal AR lags </li>
+<li>Q = Number of seasonal MA lags </li>
+<li>m = Number of observations per year </li>
+
+Automatic ARIMA models for seasonal time series
+```{r}
+# Check that the logged h02 data have stable variance
+h02 %>% log() %>% autoplot()
+
+# Fit a seasonal ARIMA model to h02 with lambda = 0
+fit <- auto.arima(h02, lambda = 0)
+
+# Summarize the fitted model
+summary(fit)
+
+# Record the amount of lag-1 differencing and seasonal differencing used
+d <- 1
+D <- 1
+
+# Plot 2-year forecasts
+fit %>% forecast(h = 24) %>% autoplot()
+```
+
+## Exploring auto.arima() options
+
+The auto.arima() function needs to estimate a lot of different models, and various short-cuts are used to try to make the function as fast as possible. This can cause a model to be returned which does not actually have the smallest AICc value. To make auto.arima() work harder to find a good model, add the optional argument stepwise = FALSE to look at a much larger collection of models.
+```{r}
+# Find an ARIMA model for euretail
+fit1 <- auto.arima(euretail)
+
+# Don't use a stepwise search
+fit2 <- auto.arima(euretail, stepwise = FALSE)
+
+# AICc of better model
+AICc <- 68.39
+
+# Compute 2-year forecasts from better model
+fit2 %>% forecast(h = 8) %>% autoplot()
+```
+
+## Comparing auto.arima() and ets() on seasonal data
+
+```{r}
+
+# Use 20 years of the qcement data beginning in 1988
+train <- window(qcement, start = 1988, end = c(2007, 4))
+
+# Fit an ARIMA and an ETS model to the training data
+fit1 <- auto.arima(train)
+fit2 <- ets(train)
+
+# Check that both models have white noise residuals
+checkresiduals(fit1)
+checkresiduals(fit2)
+
+# Produce forecasts for each model
+fc1 <- forecast(fit1, h = 2) # 1+(4∗(2013−2007)) 
+fc2 <- forecast(fit2, h = 29)
+
+# Use accuracy() to find best model based on RMSE
+#accuracy(fc1, qcement)  ?????????
+#accuracy(fc2, qcement)
+#bettermodel <- fit2
+```
+
+# Chapter 5 : Advanced methods
+
+The time series models in the previous chapters work well for many time series, but they are often not good for weekly or hourly data, and they do not allow for the inclusion of other information such as the effects of holidays, competitor activity, changes in the law, etc. In this chapter, you will look at some methods that handle more complicated seasonality, and you consider how to extend ARIMA models in order to allow other information to be included in the them.
+
+## Dynamic Regression
+
+Forecasting sales allowing for advertising expenditure
+```{r}
+# Regression model allows to include other information
+
+# Time plot of both variables
+autoplot(advert, facets=TRUE)
+
+# Fit ARIMA model
+fit <- auto.arima(advert[,"sales"], xreg = advert[,"advert"], stationary = TRUE)
+
+# Check fitted model is a regression with AR(1) errors. Increase in sales for each unit increase in advertising
+salesincrease <- coefficients(fit)[3]
+
+# Forecast fit as fc
+fc <- forecast(fit, xreg = rep(10,6))
+
+# Plot fc with x and y labels
+autoplot(fc) + xlab("Month") + ylab("Sales")
+
+```
+
+Forecasting electricity demand
+
+```{r}
+str(elecdaily)
+frequency(elecdaily)
+```
+
+```{r}
+# Time plots of demand and temperatures
+autoplot(elecdaily[, c("Demand", "Temperature")], facets = TRUE)
+
+# Matrix of regressors
+xreg <- cbind(MaxTemp = elecdaily[, "Temperature"], 
+              MaxTempSq = elecdaily[, "Temperature"]^2, 
+              Workday = elecdaily[, "WorkDay"])
+
+# Fit model
+fit <- auto.arima(elecdaily[, "Demand"], xreg = xreg)
+
+# Forecast fit one day ahead
+fc <- forecast(fit, xreg = cbind(20, 20^2, 1))
+fc
+
+# PLot
+
+autoplot(elecdaily[,"Demand"]) +
+  autolayer(fc)
+```
+
+## Dynamic Harmonic Regression
+
+<i>Forecasting weekly data </i>
+
+With weekly data, it is difficult to handle seasonality using ETS or ARIMA models as the seasonal length is too large (approximately 52). Instead, you can use harmonic regression which uses sines and cosines to model the seasonality.
+
+```{r}
+# The fourier() function makes it easy to generate the required harmonics. The higher the order (K), the more "wiggly" the seasonal pattern is allowed to be. With K=1, it is a simple sine curve. You can select the value of K by minimizing the AICc value. Function fourier(x, K, h = NULL) takes in a required time series, required number of Fourier terms to generate, and optional number of rows it needs to forecast:
+
+# Set up harmonic regressors of order 13
+harmonics <- fourier(gasoline, K = 13)
+
+# Fit regression model with ARIMA errors
+fit <- auto.arima(gasoline, xreg = harmonics, seasonal = FALSE)
+
+# Forecasts next 3 years
+newharmonics <- fourier(gasoline, K = 13, h = 156) # 156= 3 (years) * 52 (weeks as data is weekly)
+fc <- forecast(fit, xreg = newharmonics)
+
+# Plot forecasts fc
+autoplot(fc)
+```
+
+## Harmonic regression for multiple seasonality
+
+```{r}
+str(elecdemand)
+head(elecdemand)
+
+frequency(elecdemand) # Total electricity demand in GW for Victoria, Australia, every half-hour during 201 ==> frequency=17520
+
+```
+
+The seasonal periods are 48 (daily seasonality: 24h * 2) and 7 x 48 = 336 (weekly seasonality). 
+
+auto.arima() would take a long time to fit a long time series such as this one, so instead you will fit a standard regression model with Fourier terms using the tslm() function. This is very similar to lm() but is designed to handle time series. With multiple seasonality, you need to specify the order K for each of the seasonal periods.
+
+```{r}
+# Fit a harmonic regression using order 10 for each type of seasonality
+fit <- tslm(taylor ~ fourier(taylor, K = c(10, 10)))
+
+# Forecast 20 working days ahead
+fc <- forecast(fit, newdata = data.frame(fourier(taylor, K = c(10, 10), h = 20*48)))
+
+# Plot the forecasts
+autoplot(fc)
+
+# Check the residuals of fit
+checkresiduals(fit) # fails the white noise test, yest the forecast seems pretty good
+```
+
+## Forecasting call bookings (every 5 minutes)
+
+Another time series with multiple seasonal periods is calls, which contains 20 consecutive days of 5-minute call volume data for a large North American bank. There are 169 5-minute periods in a working day, and so the weekly seasonal frequency is 5 x 169 = 845. The weekly seasonality is relatively weak, so here you will just model daily seasonality
+
+```{r}
+# Plot the calls data
+autoplot(calls)
+
+# Set up the xreg matrix using order 10 for daily seasonality and 0 for weekly seasonality.
+xreg <- fourier(calls, K = c(10, 0))
+
+# Fit a dynamic regression model
+fit <- auto.arima(calls, xreg = xreg, seasonal = FALSE, stationary = TRUE)
+
+# Check the residuals
+checkresiduals(fit)
+
+# Plot forecasts for 10 working days ahead
+fc <- forecast(fit, xreg =  fourier(calls, c(10, 0), h = 10  * 169))
+autoplot(fc)
+```
+
+## TBATS models
+
+<li>Trigonometric terms for seasonality </li>
+<li>Box-Cox transformations for heterogeneity </li>
+<li> ARMA errors for short-term dynamics </li>
+<li>Trend (possibly damped) </li>
+<li>Seasonal (including multiple and non-integer periods) </li>
+
+```{r}
+# Plot the gas data
+autoplot(gas)
+
+# Fit a TBATS model to the gas data
+fit <- tbats(gas)
+
+# Forecast the series for the next 5 years
+fc <- forecast(fit, h = 12 * 5)
+
+# Plot the forecasts
+autoplot(fc)
+
+# Record the Box-Cox parameter and the order of the Fourier terms
+lambda <- 0.082
+K <- 5
+```
+
+
